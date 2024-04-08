@@ -3,22 +3,41 @@
 import numpy as np
 import tensorflow as tf
 
-def RWKVAttention(hidden_size = 768, head_size = 64):
-  hidden = tf.keras.Input((None, hidden_size)) # hidden.shape = (batch, seq_len, hidden)
-  attn_x = tf.keras.Input((hidden_size,)) # attn_x.shape = (batch, hidden)
-  attn_kv = tf.keras.Input((hidden_size // head_size, head_size, head_size,)) # attn_kv.shape = (batch, hidden // head, head, head)
-  ffn_x = tf.keras.Input((hidden_size,))
-  # extract key value
-  # shifted = concat(attn_x, right shifted hidden)
-  shifted = tf.keras.layers.Lambda(lambda x: tf.cond(
-    tf.math.equal(tf.shape(x[1])[1], 1),
-    lambda: tf.expand_dims(x[0], axis = 1),
-    lambda: tf.concat([tf.expand_dims(x[0], axis = 1), x[1][:,0:-1,:]], axis = 1)
-  ), output_shape = (None, None, hidden_size))([attn_x, hidden]) # shifted.shape = (batch, seq_len, hidden)
-  #x = tf.keras.layers.Identity()(hidden)
-  #xx = tf.keras.layers.Lambda(lambda x: x[0] - x[1])([shifted - x]) # xx.shape = (batch, seq_len, hidden)
+class RWKVAttention(tf.keras.layers.Layer):
+  def __init__(self, hidden_size = 768, head_size = 64):
+    super(RWKVAttention, self).__init__()
+    self.hidden_size = hidden_size
+    self.head_size = head_size
+  def build(self, input_shape):
+    self.time_maa_x = self.add_weight(shape = (1,1,input_shape[0][-1]), dtype = tf.float32, trainable = True, name = 'time_maa_x')
+    self.time_maa_w = self.add_weight(shape = (1,1,input_shape[0][-1]), dtype = tf.float32, trainable = True, name = 'time_maa_w')
+    self.time_maa_k = self.add_weight(shape = (1,1,input_shape[0][-1]), dtype = tf.float32, trainable = True, name = 'time_maa_k')
+    self.time_maa_v = self.add_weight(shape = (1,1,input_shape[0][-1]), dtype = tf.float32, trainable = True, name = 'time_maa_v')
+    self.time_maa_r = self.add_weight(shape = (1,1,input_shape[0][-1]), dtype = tf.float32, trainable = True, name = 'time_maa_r')
+    self.time_maa_g = self.add_weight(shape = (1,1,input_shape[0][-1]), dtype = tf.float32, trainable = True, name = 'time_maa_g')
 
-  return tf.keras.Model(inputs = (hidden, attn_x, attn_kv, ffn_x), outputs = shifted)
+    self.time_maa_w1 = self.add_weight(shape = (input_shape[0][-1], 32 * 5), dtype = tf.float32, trainable = True, name = 'time_maa_w1')
+    self.time_maa_w2 = self.add_weight(shape = (5, 32, input_shape[0][-1]), dtype = tf.float32, trainable = True, name = 'time_maa_w2')
+    self.time_decay = self.add_weight(shape = (1,1,input_shape[0][-1]), dtype = tf.float32, trainable = True, name = 'decay')
+    self.time_decay_w1 = self.add_weight(shape = (input_shape[0][-1], 64), dtype = tf.float32, trainable = True, name = 'decay_w1')
+    self.time_decay_w2 = self.add_weight(shape = (64, input_shape[0][-1]), dtype = tf.float32, trainable = True, name = 'decay_w2')
+
+    self.time_faaaa = self.add_weight(shape = (input_shape[0][-1] // input_shape[2][-1]))
+  def call(self, inputs):
+    hidden, attn_x, attn_kv, ffn_x = inputs
+    # hidden.shape = (batch, seq_len, hidden)
+    # attn_x.shape = (batch, hidden)
+    # attn_kv.shape = (batch, hidden // head, head, head)
+    # ffn_x.shape = (batch, hidden)
+
+    # extract key value
+    # shifted = concat(attn_x, right shifted hidden)
+    shifted = tf.concat([tf.expand_dims(attn_x, axis = 1), hidden[:,0:-1,:]], axis = 1) # shifted.shape = (batch, seq_len, hidden)
+    x = hidden
+    xx = shifted - x # xx.shape = (batch, seq_len, hidden)
+    xxx = x + xx * self.time_maa_x
+    xxx = tf.math.tanh(tf.linalg.matmul(xxx, self.time_))
+    return 
 
 def RWKVBlock(hidden_size = 768, head_size = 64, seq_mode = True):
   hidden = tf.keras.Input((None, hidden_size)) # hidden.shape = (batch, seq_len, hidden)
@@ -47,7 +66,7 @@ def RWKV(vocab_size, hidden_size = 768, use_cache = True, num_hidden_layers = 12
 
 if __name__ == "__main__":
   attention = RWKVAttention()
-  hidden = tf.random.normal(shape = (2, 2, 768), dtype = tf.float32)
+  hidden = tf.random.normal(shape = (2, 1, 768), dtype = tf.float32)
   attn_x = tf.random.normal(shape = (2, 768), dtype = tf.float32)
   attn_kv = tf.random.normal(shape = (2, 768 // 64, 64, 64), dtype = tf.float32)
   ffn_x = tf.random.normal(shape = (2, 768,), dtype = tf.float32)
