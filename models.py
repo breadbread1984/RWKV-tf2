@@ -9,20 +9,20 @@ class RWKVAttention(tf.keras.layers.Layer):
     self.hidden_size = hidden_size
     self.head_size = head_size
   def build(self, input_shape):
-    self.time_maa_x = self.add_weight(shape = (1,1,input_shape[0][-1]), dtype = tf.float32, trainable = True, name = 'time_maa_x')
-    self.time_maa_w = self.add_weight(shape = (1,1,input_shape[0][-1]), dtype = tf.float32, trainable = True, name = 'time_maa_w')
-    self.time_maa_k = self.add_weight(shape = (1,1,input_shape[0][-1]), dtype = tf.float32, trainable = True, name = 'time_maa_k')
-    self.time_maa_v = self.add_weight(shape = (1,1,input_shape[0][-1]), dtype = tf.float32, trainable = True, name = 'time_maa_v')
-    self.time_maa_r = self.add_weight(shape = (1,1,input_shape[0][-1]), dtype = tf.float32, trainable = True, name = 'time_maa_r')
-    self.time_maa_g = self.add_weight(shape = (1,1,input_shape[0][-1]), dtype = tf.float32, trainable = True, name = 'time_maa_g')
+    self.time_maa_x = self.add_weight(shape = (1,1,self.hidden_size), dtype = tf.float32, trainable = True, name = 'time_maa_x')
+    self.time_maa_w = self.add_weight(shape = (1,1,self.hidden_size), dtype = tf.float32, trainable = True, name = 'time_maa_w')
+    self.time_maa_k = self.add_weight(shape = (1,1,self.hidden_size), dtype = tf.float32, trainable = True, name = 'time_maa_k')
+    self.time_maa_v = self.add_weight(shape = (1,1,self.hidden_size), dtype = tf.float32, trainable = True, name = 'time_maa_v')
+    self.time_maa_r = self.add_weight(shape = (1,1,self.hidden_size), dtype = tf.float32, trainable = True, name = 'time_maa_r')
+    self.time_maa_g = self.add_weight(shape = (1,1,self.hidden_size), dtype = tf.float32, trainable = True, name = 'time_maa_g')
 
-    self.time_maa_w1 = self.add_weight(shape = (input_shape[0][-1], 32 * 5), dtype = tf.float32, trainable = True, name = 'time_maa_w1')
-    self.time_maa_w2 = self.add_weight(shape = (5, 32, input_shape[0][-1]), dtype = tf.float32, trainable = True, name = 'time_maa_w2')
-    self.time_decay = self.add_weight(shape = (1,1,input_shape[0][-1]), dtype = tf.float32, trainable = True, name = 'decay')
-    self.time_decay_w1 = self.add_weight(shape = (input_shape[0][-1], 64), dtype = tf.float32, trainable = True, name = 'decay_w1')
-    self.time_decay_w2 = self.add_weight(shape = (64, input_shape[0][-1]), dtype = tf.float32, trainable = True, name = 'decay_w2')
+    self.time_maa_w1 = self.add_weight(shape = (self.hidden_size, 32 * 5), dtype = tf.float32, trainable = True, name = 'time_maa_w1')
+    self.time_maa_w2 = self.add_weight(shape = (5, 32, self.hidden_size), dtype = tf.float32, trainable = True, name = 'time_maa_w2')
+    self.time_decay = self.add_weight(shape = (1,1,self.hidden_size), dtype = tf.float32, trainable = True, name = 'decay')
+    self.time_decay_w1 = self.add_weight(shape = (self.hidden_size, 64), dtype = tf.float32, trainable = True, name = 'decay_w1')
+    self.time_decay_w2 = self.add_weight(shape = (64, self.hidden_size), dtype = tf.float32, trainable = True, name = 'decay_w2')
 
-    self.time_faaaa = self.add_weight(shape = (input_shape[0][-1] // input_shape[2][-1]))
+    self.time_faaaa = self.add_weight(shape = (self.hidden_size // self.head_size, self.head_size))
   def call(self, inputs):
     hidden, attn_x, attn_kv, ffn_x = inputs
     # hidden.shape = (batch, seq_len, hidden)
@@ -33,10 +33,13 @@ class RWKVAttention(tf.keras.layers.Layer):
     # extract key value
     # shifted = concat(attn_x, right shifted hidden)
     shifted = tf.concat([tf.expand_dims(attn_x, axis = 1), hidden[:,0:-1,:]], axis = 1) # shifted.shape = (batch, seq_len, hidden)
-    x = hidden
+    x = hidden # x.shape = (batch, seq_len, hidden)
     xx = shifted - x # xx.shape = (batch, seq_len, hidden)
-    xxx = x + xx * self.time_maa_x
-    xxx = tf.math.tanh(tf.linalg.matmul(xxx, self.time_))
+    xxx = x + xx * self.time_maa_x # xxx.shape = (batch, seq_len, hidden)
+    xxx = tf.transpose(tf.math.tanh(tf.reshape(tf.linalg.matmul(xxx, self.time_maa_w1), (-1, 5, 32))), (1,0,2)) # xxx.shape = (5, batch * seq_len, 32)
+    xxx = tf.reshape(tf.linalg.matmul(xxx, self.time_maa_w2), (5, tf.shape(hidden)[0], tf.shape(hidden)[1], self.hidden_size)) # xxx.shape = (5, batch, seq_len, hidden_size)
+    mw, mk, mv, mr, mg = xxx[0,...], xxx[1,...], xxx[2,...], xxx[3,...], xxx[4,...] # shape = (batch, seq_len, hidden_size)
+
     return 
 
 def RWKVBlock(hidden_size = 768, head_size = 64, seq_mode = True):
