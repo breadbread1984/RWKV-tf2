@@ -23,6 +23,12 @@ class RWKVAttention(tf.keras.layers.Layer):
     self.time_decay_w2 = self.add_weight(shape = (64, self.hidden_size), dtype = tf.float32, trainable = True, name = 'decay_w2')
 
     self.time_faaaa = self.add_weight(shape = (self.hidden_size // self.head_size, self.head_size))
+
+    self.receptance_w = self.add_weight(shape = (self.hidden_size, self.hidden_size), dtype = tf.float32, trainable = True, name = 'receptance_w')
+    self.key_w = self.add_weight(shape = (self.hidden_size, self.hidden_size), dtype = tf.float32, trainable = True, name = 'key_w')
+    self.value_w = self.add_weight(shape = (self.hidden_size, self.hidden_size), dtype = tf.float32, trainable = True, name = 'value_w')
+    self.gate_w = self.add_weight(shape = (self.hidden_size, self.hidden_size), dtype = tf.float32, trainable = True, name = 'gate_w')
+    self.output_w = self.add_weight(shape = (self.hidden_size, self.hidden_size), dtype = tf.float32, trainable = True, name = 'output_w')
   def call(self, inputs):
     hidden, attn_x, attn_kv, ffn_x = inputs
     # hidden.shape = (batch, seq_len, hidden)
@@ -30,7 +36,7 @@ class RWKVAttention(tf.keras.layers.Layer):
     # attn_kv.shape = (batch, hidden // head, head, head)
     # ffn_x.shape = (batch, hidden)
 
-    # extract key value
+    # 1) extract key value
     # shifted = concat(attn_x, right shifted hidden)
     shifted = tf.concat([tf.expand_dims(attn_x, axis = 1), hidden[:,0:-1,:]], axis = 1) # shifted.shape = (batch, seq_len, hidden)
     x = hidden # x.shape = (batch, seq_len, hidden)
@@ -39,6 +45,25 @@ class RWKVAttention(tf.keras.layers.Layer):
     xxx = tf.transpose(tf.math.tanh(tf.reshape(tf.linalg.matmul(xxx, self.time_maa_w1), (-1, 5, 32))), (1,0,2)) # xxx.shape = (5, batch * seq_len, 32)
     xxx = tf.reshape(tf.linalg.matmul(xxx, self.time_maa_w2), (5, tf.shape(hidden)[0], tf.shape(hidden)[1], self.hidden_size)) # xxx.shape = (5, batch, seq_len, hidden_size)
     mw, mk, mv, mr, mg = xxx[0,...], xxx[1,...], xxx[2,...], xxx[3,...], xxx[4,...] # shape = (batch, seq_len, hidden_size)
+
+    time_decay = x + xx + (self.time_maa_w + mw)
+    key = x + xx + (self.time_maa_k + mk)
+    value = x + xx + (self.time_maa_v + mv)
+    receptance = x + xx + (self.time_maa_r + mr)
+    gate = x + xx + (self.time_maa_g + mg)
+
+    receptance = tf.linalg.matmul(receptance, self.receptance_w)
+    key = tf.linalg.matmul(key, self.key_w)
+    value = tf.linalg.matmul(value, self.value_w)
+    gate = tf.nn.silu(tf.linalg.matmul(gate, self.gate_w))
+
+    time_decay = tf.linalg.matmul(tf.math.tanh(tf.linalg.matmul(time_decay, self.time_decay_w1)), self.time_decay_w2)
+    time_decay = self.time_decay + time_decay
+
+    attn_x = hidden[:, -1]
+
+    # 2) forward
+    layer_state = attn_kv
 
     return 
 
