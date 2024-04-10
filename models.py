@@ -10,7 +10,8 @@ class RWKVAttention(tf.keras.layers.Layer):
     self.head_size = head_size
     self.group_norm = tf.keras.layers.GroupNormalization(groups = self.hidden_size // self.head_size, eps = 1e-5 * (self.head_size ** 2))
   def build(self, input_shape):
-    self.mu = self.add_weight(shape = (1,1,self.hidden_size), dtype = tf.float32, trainable = True, name = 'mu')
+    self.time_maa_x = self.add_weight(shape = (1,1,self.hidden_size), dtype = tf.float32, trainable = True, name = 'time_maa_x')
+
     self.time_maa_w = self.add_weight(shape = (1,1,self.hidden_size), dtype = tf.float32, trainable = True, name = 'time_maa_w')
     self.time_maa_k = self.add_weight(shape = (1,1,self.hidden_size), dtype = tf.float32, trainable = True, name = 'time_maa_k')
     self.time_maa_v = self.add_weight(shape = (1,1,self.hidden_size), dtype = tf.float32, trainable = True, name = 'time_maa_v')
@@ -43,7 +44,7 @@ class RWKVAttention(tf.keras.layers.Layer):
     # NOTE: time_mix = mu * shifted_x + (1 - mu) * x = mu * x_t + (1 - mu) * x_{t-1}
     x = hidden # x.shape = (batch, seq_len, hidden)
     shifted_x = tf.concat([tf.expand_dims(attn_x, axis = 1), x[:,0:-1,:]], axis = 1) # shifted_x.shape = (batch, seq_len, hidden)
-    time_mix = x + (shifted_x - x) * self.mu # xxx.shape = (batch, seq_len, hidden)
+    time_mix = x + (shifted_x - x) * self.time_maa_x # xxx.shape = (batch, seq_len, hidden)
     # NOTE: W2 @ W1 @ (mu * x_t + (1 - mu) * x_{t-1}), equations (11)-(15)
     xxx = tf.transpose(tf.reshape(tf.math.tanh(tf.linalg.matmul(time_mix, self.time_maa_w1)), (-1, 5, 32)), (1,0,2)) # xxx.shape = (5, batch * seq_len, 32)
     xxx = tf.reshape(tf.linalg.matmul(xxx, self.time_maa_w2), (5, tf.shape(hidden)[0], tf.shape(hidden)[1], self.hidden_size)) # xxx.shape = (5, batch, seq_len, hidden_size)
@@ -55,7 +56,7 @@ class RWKVAttention(tf.keras.layers.Layer):
     value = x + (shifted_x - x) * (self.time_maa_v + mv) # value.shape = (batch, seq_len, hidden)
     receptance = x + (shifted_x - x) * (self.time_maa_r + mr) # receptance.shape = (batch, seq_len, hidden)
     gate = x + (shifted_x - x) * (self.time_maa_g + mg) # gate.shape = (batch, seq_len, hidden)
-
+    # NOTE: W @ ((w + m) * shifted_x + (1 - (w + m)) * x)
     receptance = tf.linalg.matmul(receptance, self.receptance_w) # receptance.shape = (batch, seq_len, hidden)
     key = tf.linalg.matmul(key, self.key_w) # key.shape = (batch, seq_len, hidden)
     value = tf.linalg.matmul(value, self.value_w) # value.shape = (batch, seq_len, hidden)
