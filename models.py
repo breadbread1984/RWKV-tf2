@@ -141,7 +141,7 @@ class RWKVForward(tf.keras.layers.Layer):
   def from_config(cls, config):
     return cls(**config)
 
-def RWKVBlock(hidden_size = 768, head_size = 64, seq_mode = True):
+def RWKVBlock(hidden_size = 768, head_size = 64):
   hidden = tf.keras.Input((None, hidden_size)) # hidden.shape = (batch, seq_len, hidden)
   attn_x = tf.keras.Input((hidden_size,))
   attn_kv = tf.keras.Input((hidden_size // head_size, head_size, head_size,))
@@ -154,7 +154,7 @@ def RWKVBlock(hidden_size = 768, head_size = 64, seq_mode = True):
   hidden_ = tf.keras.layers.Add()([hidden_, feed_forward])
   return tf.keras.Model(inputs = (hidden, attn_x, attn_kv, ffn_x), outputs = (hidden_, attn_x_, attn_kv_, ffn_x_))
 
-def RWKV(vocab_size, hidden_size = 768, use_cache = True, num_hidden_layers = 12, head_size = 64, seq_mode = True):
+def RWKV(vocab_size, hidden_size = 768, use_cache = True, num_hidden_layers = 12, head_size = 64):
   inputs = tf.keras.Input((None,), dtype = tf.int32)
   if use_cache:
     state_attn_x = tf.keras.Input((hidden_size, num_hidden_layers))
@@ -166,17 +166,30 @@ def RWKV(vocab_size, hidden_size = 768, use_cache = True, num_hidden_layers = 12
     state_ffn_x = tf.keras.layers.Lambda(lambda x, h, l: tf.zeros(tf.shape(x)[0], h, l, dtype = tf.float32), arguments = {'h': hidden_size, 'l': num_hidden_layers})(inputs)
   hidden_states = tf.keras.layers.Embedding(vocab_size, hidden_size)(inputs)
   hidden_states = tf.keras.layers.LayerNormalization()(hidden_states)
+  attn_x_list = list()
+  attn_kv_list = list()
+  ffn_x_list = list()
   for i in range(num_hidden_layers):
     attn_x = tf.keras.layers.Lambda(lambda x, i: x[...,i], arguments = {'i': i})(state_attn_x)
     attn_kv = tf.keras.layers.Lambda(lambda x, i: x[...,i], arguments = {'i': i})(state_attn_kv)
     ffn_x = tf.keras.layers.Lambda(lambda x, i: x[...,i], arguments = {'i': i})(state_ffn_x)
+    hidden_states, attn_x, attn_kv, ffn_x = RWKVBlock(hidden_size, head_size)([hidden_states, attn_x, attn_kv, ffn_x])
+    attn_x_list.append(attn_x)
+    attn_kv_list.append(attn_kv)
+    ffn_x_list.append(ffn_x)
+  attn_x = tf.keras.layers.Lambda(lambda x: tf.stack(x, axis = -1))(attn_x_list)
+  attn_kv = tf.keras.layers.Lambda(lambda x: tf.stack(x, axis = -1))(attn_kv_list)
+  ffn_x = tf.keras.layers.Lambda(lambda x: tf.stack(x, axis = -1))(ffn_x_list)
+  hidden_states = tf.keras.layers.LayerNormalization()(hidden_states)
+  return tf.keras.Model(inputs = [inputs,] + ([state_attn_x, state_attn_kv, state_ffn_x] if use_cache else [,]),
+                        outputs = [hidden_states, attn_x, attn_kv, ffn_x])
 
 if __name__ == "__main__":
-  attention = RWKVAttention()
-  hidden = tf.random.normal(shape = (2, 1, 768), dtype = tf.float32)
+  rwkv = RWKV()
+  hidden = tf.random.normal(shape = (2, 10, 768), dtype = tf.float32)
   attn_x = tf.random.normal(shape = (2, 768), dtype = tf.float32)
   attn_kv = tf.random.normal(shape = (2, 768 // 64, 64, 64), dtype = tf.float32)
   ffn_x = tf.random.normal(shape = (2, 768,), dtype = tf.float32)
-  outputs = attention([hidden, attn_x, attn_kv, ffn_x])
-  print(outputs.shape)
+  outputs, attn_x, attn_kv, ffn_x = rwkv([hidden, attn_x, attn_kv, ffn_x])
+  print(outputs.shape, attn_x.shape, attn_kv.shape, ffn_x.shape)
 
