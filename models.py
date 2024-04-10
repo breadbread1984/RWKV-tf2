@@ -196,5 +196,6 @@ if __name__ == "__main__":
   attn_kv = tf.random.normal(shape = (2, 768 // 64, 64, 64, 12), dtype = tf.float32)
   ffn_x = tf.random.normal(shape = (2, 768, 12), dtype = tf.float32)
   outputs, attn_x, attn_kv, ffn_x = rwkv([hidden, attn_x, attn_kv, ffn_x])
+  rwkv.save('rwkv.keras')
   print(outputs.shape, attn_x.shape, attn_kv.shape, ffn_x.shape)
 
