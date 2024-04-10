@@ -10,7 +10,7 @@ class RWKVAttention(tf.keras.layers.Layer):
     self.head_size = head_size
     self.group_norm = tf.keras.layers.GroupNormalization(groups = self.hidden_size // self.head_size, eps = 1e-5 * (self.head_size ** 2))
   def build(self, input_shape):
-    self.time_maa_x = self.add_weight(shape = (1,1,self.hidden_size), dtype = tf.float32, trainable = True, name = 'time_maa_x')
+    self.mu = self.add_weight(shape = (1,1,self.hidden_size), dtype = tf.float32, trainable = True, name = 'mu')
     self.time_maa_w = self.add_weight(shape = (1,1,self.hidden_size), dtype = tf.float32, trainable = True, name = 'time_maa_w')
     self.time_maa_k = self.add_weight(shape = (1,1,self.hidden_size), dtype = tf.float32, trainable = True, name = 'time_maa_k')
     self.time_maa_v = self.add_weight(shape = (1,1,self.hidden_size), dtype = tf.float32, trainable = True, name = 'time_maa_v')
@@ -39,13 +39,12 @@ class RWKVAttention(tf.keras.layers.Layer):
     # ffn_x.shape = (batch, hidden)
 
     # 1) linear to get key value
-    # NOTE: xxx = time_maa_x * shited + (1 - time_maa_x) * x = mu * x_t + (1 - mu) * x_{t-1}
-    shifted = tf.concat([tf.expand_dims(attn_x, axis = 1), hidden[:,0:-1,:]], axis = 1) # shifted.shape = (batch, seq_len, hidden)
+    # NOTE: xxx = mu * shifted_x + (1 - mu) * x = mu * x_t + (1 - mu) * x_{t-1}
     x = hidden # x.shape = (batch, seq_len, hidden)
-    xx = shifted - x # xx.shape = (batch, seq_len, hidden)
-    xxx = x + xx * self.time_maa_x # xxx.shape = (batch, seq_len, hidden)
-
-    xxx = tf.transpose(tf.math.tanh(tf.reshape(tf.linalg.matmul(xxx, self.time_maa_w1), (-1, 5, 32))), (1,0,2)) # xxx.shape = (5, batch * seq_len, 32)
+    shifted_x = tf.concat([tf.expand_dims(attn_x, axis = 1), x[:,0:-1,:]], axis = 1) # shifted_x.shape = (batch, seq_len, hidden)
+    time_mix = x + (shifted_x - x) * self.mu # xxx.shape = (batch, seq_len, hidden)
+    # NOTE: W @ (mu * x_t + (1 - mu) * x_{t-1})
+    xxx = tf.transpose(tf.math.tanh(tf.reshape(tf.linalg.matmul(time_mix, self.time_maa_w1), (-1, 5, 32))), (1,0,2)) # xxx.shape = (5, batch * seq_len, 32)
     xxx = tf.reshape(tf.linalg.matmul(xxx, self.time_maa_w2), (5, tf.shape(hidden)[0], tf.shape(hidden)[1], self.hidden_size)) # xxx.shape = (5, batch, seq_len, hidden_size)
     mw, mk, mv, mr, mg = xxx[0,...], xxx[1,...], xxx[2,...], xxx[3,...], xxx[4,...] # shape = (batch, seq_len, hidden_size)
 
