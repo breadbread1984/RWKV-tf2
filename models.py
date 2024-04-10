@@ -8,7 +8,7 @@ class RWKVAttention(tf.keras.layers.Layer):
     super(RWKVAttention, self).__init__()
     self.hidden_size = hidden_size
     self.head_size = head_size
-    self.group_norm = tf.keras.layers.GroupNormalization(groups = self.hidden_size // self.head_size, eps = 1e-5 * (self.head_size ** 2))
+    self.group_norm = tf.keras.layers.GroupNormalization(groups = self.hidden_size // self.head_size, epsilon = 1e-5 * (self.head_size ** 2))
   def build(self, input_shape):
     self.time_maa_x = self.add_weight(shape = (1,1,self.hidden_size), dtype = tf.float32, trainable = True, name = 'time_maa_x')
 
@@ -181,12 +181,12 @@ def RWKV(vocab_size, hidden_size = 768, use_cache = True, num_hidden_layers = 12
   attn_kv = tf.keras.layers.Lambda(lambda x: tf.stack(x, axis = -1))(attn_kv_list)
   ffn_x = tf.keras.layers.Lambda(lambda x: tf.stack(x, axis = -1))(ffn_x_list)
   hidden_states = tf.keras.layers.LayerNormalization()(hidden_states)
-  return tf.keras.Model(inputs = [inputs,] + ([state_attn_x, state_attn_kv, state_ffn_x] if use_cache else [,]),
+  return tf.keras.Model(inputs = [inputs,] + ([state_attn_x, state_attn_kv, state_ffn_x] if use_cache else []),
                         outputs = [hidden_states, attn_x, attn_kv, ffn_x])
 
 if __name__ == "__main__":
-  rwkv = RWKV()
-  hidden = tf.random.normal(shape = (2, 10, 768), dtype = tf.float32)
+  rwkv = RWKV(vocab_size = 1000)
+  hidden = tf.random.uniform(minval = 0, maxval = 100, shape = (2, 100), dtype = tf.int32)
   attn_x = tf.random.normal(shape = (2, 768), dtype = tf.float32)
   attn_kv = tf.random.normal(shape = (2, 768 // 64, 64, 64), dtype = tf.float32)
   ffn_x = tf.random.normal(shape = (2, 768,), dtype = tf.float32)
