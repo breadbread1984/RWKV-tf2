@@ -191,7 +191,7 @@ def RWKV(vocab_size, hidden_size = 768, use_cache = True, num_hidden_layers = 12
 
 if __name__ == "__main__":
   rwkv = RWKV(vocab_size = 1000)
-  hidden = tf.random.uniform(minval = 0, maxval = 100, shape = (2, 100), dtype = tf.int32)
+  hidden = tf.random.uniform(minval = 0, maxval = 1000, shape = (2, 100), dtype = tf.int32)
   attn_x = tf.random.normal(shape = (2, 768, 12), dtype = tf.float32)
   attn_kv = tf.random.normal(shape = (2, 768 // 64, 64, 64, 12), dtype = tf.float32)
   ffn_x = tf.random.normal(shape = (2, 768, 12), dtype = tf.float32)
