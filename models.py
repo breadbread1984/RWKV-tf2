@@ -32,6 +32,7 @@ class RWKVAttention(tf.keras.layers.Layer):
     self.gate_w = self.add_weight(shape = (self.hidden_size, self.hidden_size), dtype = tf.float32, trainable = True, name = 'gate_w')
     self.output_w = self.add_weight(shape = (self.hidden_size, self.hidden_size), dtype = tf.float32, trainable = True, name = 'output_w')
     super(RWKVAttention, self).build(input_shape)
+  @tf.function
   def call(self, inputs):
     hidden, attn_x, attn_kv, ffn_x = inputs
     # hidden.shape = (batch, seq_len, hidden)
@@ -85,7 +86,7 @@ class RWKVAttention(tf.keras.layers.Layer):
       attention_output = tf.linalg.matmul(current_key, current_value) # attention_output.shape = (batch, head_num, head_size, head_size)
       out = tf.squeeze(tf.linalg.matmul(current_receptance, time_first * attention_output + layer_state), axis = 2) # out.shape = (batch, head num, head size)
       outs.append(out)
-    out = tf.stack(outs, dim = 1) # out.shape = (batch, seq_len, head num, head size)
+    out = tf.stack(outs, axis = 1) # out.shape = (batch, seq_len, head num, head size)
     layer_state = attention_output + current_time_decay * layer_state # layer_state.shape = (batch, head num, head size, head size)
     attn_kv = layer_state
     # 3) output linear
