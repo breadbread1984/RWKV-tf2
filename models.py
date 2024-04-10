@@ -114,7 +114,7 @@ class RWKVForward(tf.keras.layers.Layer):
     self.key_w = self.add_weight(shape = (self.hidden_size, self.intermediate_size), dtype = tf.float32, trainable = True, name = 'key_w')
     self.receptance_w = self.add_weight(shape = (self.hidden_size, self.hidden_size), dtype = tf.float32, trainable = True, name = 'receptance_w')
     self.value_w = self.add_weight(shape = (self.hidden_size, self.hidden_size), dtype = tf.float32, trainable = True, name = 'value_w')
-    super(RWKVForward, self).build()
+    super(RWKVForward, self).build(input_shape)
   def call(self, inputs):
     hidden, attn_x, attn_kv, ffn_x = inputs
     # hidden.shape = (batch, seq_len, hidden)
