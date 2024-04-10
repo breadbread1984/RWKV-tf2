@@ -32,6 +32,8 @@ class RWKVAttention(tf.keras.layers.Layer):
     self.gate_w = self.add_weight(shape = (self.hidden_size, self.hidden_size), dtype = tf.float32, trainable = True, name = 'gate_w')
     self.output_w = self.add_weight(shape = (self.hidden_size, self.hidden_size), dtype = tf.float32, trainable = True, name = 'output_w')
     super(RWKVAttention, self).build(input_shape)
+  def compute_output_shape(self, input_shape):
+    return input_shape
   @tf.function
   def call(self, inputs):
     hidden, attn_x, attn_kv, ffn_x = inputs
@@ -116,6 +118,8 @@ class RWKVForward(tf.keras.layers.Layer):
     self.receptance_w = self.add_weight(shape = (self.hidden_size, self.hidden_size), dtype = tf.float32, trainable = True, name = 'receptance_w')
     self.value_w = self.add_weight(shape = (self.hidden_size, self.hidden_size), dtype = tf.float32, trainable = True, name = 'value_w')
     super(RWKVForward, self).build(input_shape)
+  def compute_output_shape(self, input_shape):
+    return input_shape
   def call(self, inputs):
     hidden, attn_x, attn_kv, ffn_x = inputs
     # hidden.shape = (batch, seq_len, hidden)
@@ -127,7 +131,7 @@ class RWKVForward(tf.keras.layers.Layer):
     key = hidden + delta_hidden_to_shifted * self.time_maa_k
     receptance = hidden + delta_hidden_to_shifted * self.time_maa_r
 
-    key = tf.nn.relu(f.linalg.matmul(key, self.key_w)) ** 2
+    key = tf.nn.relu(tf.linalg.matmul(key, self.key_w)) ** 2
     value = tf.linalg.matmul(value, self.value_w)
     receptance = tf.math.sigmoid(tf.linalg.matmul(receptance, self.receptance_w))
     
