@@ -68,7 +68,7 @@ class RWKVAttention(tf.keras.layers.Layer):
     attn_x = hidden[:, -1]
 
     # 2) rwkv6_linear_attention
-    layer_state = attn_kv # layer_state.shape = (batch, head num, head, head)
+    layer_state = attn_kv # layer_state.shape = (batch, head num, head size, head size)
     time_first = self.time_faaaa # time_first.shape = (head_num, head_size)
     key = tf.transpose(tf.reshape(key, (tf.shape(key)[0], tf.shape(key)[1], self.hidden_size // self.head_size, self.head_size)), (0,2,3,1)) # key.shape = (batch, head_num, head_size, seq_len)
     value = tf.transpose(tf.reshape(value, (tf.shape(value)[0], tf.shape(value)[1], self.hidden_size // self.head_size, self.head_size)), (0,2,1,3)) # value.shape = (batch, head_num, seq_len, head_size)
@@ -81,6 +81,7 @@ class RWKVAttention(tf.keras.layers.Layer):
       current_key = key[...,current_index:current_index+1] # current_key.shape = (batch, head_num, head_size, 1)
       current_value = value[...,current_index:current_index+1,:] # current_value.shape = (batch, head_num, 1, head_size)
       current_time_decay = time_decay[...,current_index:current_index+1] # current_time_decay.shape = (batch, head_num, head_size, 1)
+      # NOTE: out product of key and value vector
       attention_output = tf.linalg.matmul(current_key, current_value) # attention_output.shape = (batch, head_num, head_size, head_size)
       out = tf.squeeze(tf.linalg.matmul(current_receptance, time_first * attention_output + layer_state), axis = 2) # out.shape = (batch, head num, head size)
       outs.append(out)
@@ -102,13 +103,56 @@ class RWKVAttention(tf.keras.layers.Layer):
   def from_config(cls, config):
     return cls(**config)
 
+class RWKVForward(tf.keras.layers.Layer):
+  def __init__(self, hidden_size):
+    super(RWKVForward, self).__init__()
+    self.hidden_size = hidden_size
+    self.intermediate_size = int((self.hidden_size * 3.5) // 32 * 32)
+  def build(self, input_shape):
+    self.time_maa_k = self.add_weight(shape = (1,1,self.hidden_size), dtype = tf.float32, trainable = True, name = 'time_maa_k')
+    self.time_maa_r = self.add_weight(shape = (1,1,self.hidden_size), dtype = tf.float32, trainable = True, name = 'time_maa_r')
+    self.key_w = self.add_weight(shape = (self.hidden_size, self.intermediate_size), dtype = tf.float32, trainable = True, name = 'key_w')
+    self.receptance_w = self.add_weight(shape = (self.hidden_size, self.hidden_size), dtype = tf.float32, trainable = True, name = 'receptance_w')
+    self.value_w = self.add_weight(shape = (self.hidden_size, self.hidden_size), dtype = tf.float32, trainable = True, name = 'value_w')
+    super(RWKVForward, self).build()
+  def call(self, inputs):
+    hidden, attn_x, attn_kv, ffn_x = inputs
+    # hidden.shape = (batch, seq_len, hidden)
+    # attn_x.shape = (batch, hidden)
+    # attn_kv.shape = (batch, hidden // head, head, head)
+    # ffn_x.shape = (batch, hidden)
+    shifted = tf.concat([tf.expand_dims(ffn_x, axis = 1), hidden[:,0:-1,:]], axis = 1) # shifted.shape = (batch, seq_len, hidden)
+    delta_hidden_to_shifted = shifted - hidden
+    key = hidden + delta_hidden_to_shifted * self.time_maa_k
+    receptance = hidden + delta_hidden_to_shifted * self.time_maa_r
+
+    key = tf.nn.relu(f.linalg.matmul(key, self.key_w)) ** 2
+    value = tf.linalg.matmul(value, self.value_w)
+    receptance = tf.math.sigmoid(tf.linalg.matmul(receptance, self.receptance_w))
+    
+    ffn_x = hidden[:, -1]
+    out = receptance * value
+    return out, attn_x, attn_kv, ffn_x
+  def get_config(self,):
+    config = super(RWKVForward,self).get_config()
+    config['hidden_size'] = self.hidden_size
+    return config
+  @classmethod
+  def from_config(cls, config):
+    return cls(**config)
+
 def RWKVBlock(hidden_size = 768, head_size = 64, seq_mode = True):
   hidden = tf.keras.Input((None, hidden_size)) # hidden.shape = (batch, seq_len, hidden)
   attn_x = tf.keras.Input((hidden_size,))
   attn_kv = tf.keras.Input((hidden_size // head_size, head_size, head_size,))
   ffn_x = tf.keras.Input((hidden_size,))
-  hidden = tf.keras.layers.LayerNormalization()(hidden)
-  
+  hidden_ = tf.keras.layers.LayerNormalization()(hidden)
+  attention, attn_x_, attn_kv_, ffn_x_ = RWKVAttention(hidden_size, head_size)([hidden_, attn_x, attn_kv, ffn_x])
+  hidden_ = tf.keras.layers.Add()([hidden_, attention]) # hidden.shape = (batch, seq_len, hidden)
+  hidden_ = tf.keras.layers.LayerNormalization()(hidden_)
+  feed_forward, attn_x_, attn_kv_, ffn_x_ = RWKVForward(hidden_size)([hidden_, attn_x_, attn_kv_, ffn_x_])
+  hidden_ = tf.keras.layers.Add()([hidden_, feed_forward])
+  return tf.keras.Model(inputs = (hidden, attn_x, attn_kv, ffn_x), outputs = (hidden_, attn_x_, attn_kv_, ffn_x_))
 
 def RWKV(vocab_size, hidden_size = 768, use_cache = True, num_hidden_layers = 12, head_size = 64, seq_mode = True):
   inputs = tf.keras.Input((None,), dtype = tf.int32)
